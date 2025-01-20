@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2016 Ericsson
+ * Copyright (c) 2016, 2025 Ericsson
  *
  * All rights reserved. This program and the accompanying materials are
  * made available under the terms of the Eclipse Public License 2.0 which
@@ -11,20 +11,13 @@
 
 package org.eclipse.tracecompass.common.core.log;
 
-import java.text.DecimalFormat;
-import java.text.Format;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.eclipse.jdt.annotation.Nullable;
+import org.eclipse.tracecompass.traceeventlogger.LogUtils;
+import org.eclipse.tracecompass.traceeventlogger.LogUtils.IFlowScopeLog;
 
 /**
  * Logger helper
@@ -102,25 +95,10 @@ import org.eclipse.jdt.annotation.Nullable;
  * @since 3.0
  * @noinstantiate This class is not intended to be instantiated by clients. It
  *                is a helper class.
+ * @deprecated Use {@link LogUtils} instead.
  */
+@Deprecated
 public final class TraceCompassLogUtils {
-
-    private static final Format FORMAT = new DecimalFormat("#.###"); //$NON-NLS-1$
-
-    /*
-     * Field names
-     */
-    private static final String ARGS = "args"; //$NON-NLS-1$
-    private static final String NAME = "name"; //$NON-NLS-1$
-    private static final String CATEGORY = "cat"; //$NON-NLS-1$
-    private static final String ID = "id"; //$NON-NLS-1$
-    private static final String TID = "tid"; //$NON-NLS-1$
-    private static final String PID = "pid"; //$NON-NLS-1$
-    private static final String TIMESTAMP = "ts"; //$NON-NLS-1$
-    private static final String PHASE = "ph"; //$NON-NLS-1$
-
-    private static final String ARGS_ERROR_MESSAGE = "Data should be in the form of key, value, key1, value1, ... TraceCompassScopeLog was supplied "; //$NON-NLS-1$
-    private static final AtomicInteger ID_GENERATOR = new AtomicInteger(0);
 
     private TraceCompassLogUtils() {
         // do nothing
@@ -151,14 +129,7 @@ public final class TraceCompassLogUtils {
      *  INFO: {"ts":"12366,"ph":"E","tid":1}
      * </pre>
      */
-    public static class ScopeLog implements AutoCloseable {
-
-        private final long fTime;
-        private final long fThreadId;
-        private final Logger fLogger;
-        private final Level fLevel;
-        private final String fLabel;
-        private final Map<String, Object> fData = new HashMap<>();
+    public static class ScopeLog extends LogUtils.ScopeLog {
 
         /**
          * Scope logger constructor
@@ -176,50 +147,7 @@ public final class TraceCompassLogUtils {
          *            beginning of the scope
          */
         public ScopeLog(Logger log, Level level, String label, Object... args) {
-            fTime = System.nanoTime();
-            fLogger = log;
-            fLevel = level;
-            fThreadId = Thread.currentThread().getId();
-            fLabel = label;
-            fLogger.log(fLevel, (() -> {
-                StringBuilder sb = new StringBuilder();
-                sb.append('{');
-                appendCommon(sb, 'B', fTime, fThreadId);
-                appendName(sb, fLabel);
-                appendArgs(sb, args);
-                sb.append('}');
-                return sb.toString();
-            }));
-        }
-
-        /**
-         * Add a tag to the scope logger, will be written at the exit. This can
-         * save space on the trace by having a field appended to an event rather
-         * than writing a whole new event for a small chunk of data.
-         *
-         * If the timing information is important than it would be more
-         * appropriate to call
-         * {@link TraceCompassLogUtils#traceInstant(Logger, Level, String, Object...)}
-         *
-         * @param name
-         *            the name of the field
-         * @param value
-         *            The value of the field.
-         */
-        public void addData(String name, Object value) {
-            fData.put(name, value);
-        }
-
-        @Override
-        public void close() {
-            long time = System.nanoTime();
-            fLogger.log(fLevel, (() -> {
-                StringBuilder sb = new StringBuilder();
-                sb.append('{');
-                appendCommon(sb, 'E', time, fThreadId);
-                return appendArgs(sb, fData).append('}').toString();
-            }));
-            TraceCompassMonitorManager.getInstance().update(fLabel, time - fTime);
+            super(log, level, label, args);
         }
     }
 
@@ -231,15 +159,7 @@ public final class TraceCompassLogUtils {
      * @author Geneviève Bastien
      */
     public static class FlowScopeLogBuilder {
-
-        private final Logger fLogger;
-        private final Level fLevel;
-        private final String fLabel;
-        private final Object[] fArgs;
-        private int fId = Integer.MIN_VALUE;
-        private @Nullable String fCategory = null;
-        private @Nullable FlowScopeLog fParent = null;
-        private boolean fHasParent = false;
+        private LogUtils.FlowScopeLogBuilder wrapped;
 
         /**
          * Flow scope log builder constructor
@@ -255,10 +175,7 @@ public final class TraceCompassLogUtils {
          *            value2.... typically arguments
          */
         public FlowScopeLogBuilder(Logger logger, Level level, String label, Object... args) {
-            fLogger = logger;
-            fLevel = level;
-            fLabel = label;
-            fArgs = args;
+            wrapped = new LogUtils.FlowScopeLogBuilder(logger, level, label, args);
         }
 
         /**
@@ -266,7 +183,7 @@ public final class TraceCompassLogUtils {
          * will be automatically generated.
          *
          * This method is mutually exclusive with
-         * {@link #setParentScope(FlowScopeLog)}. Calling both will throw an
+         * {@link #setParentScope(IFlowScopeLog)}. Calling both will throw an
          * exception.
          *
          * @param category
@@ -274,10 +191,7 @@ public final class TraceCompassLogUtils {
          * @return This builder
          */
         public FlowScopeLogBuilder setCategory(String category) {
-            if (fParent != null) {
-                throw new IllegalStateException("FlowScopeLogBuilder: Cannot set a category if a parent has already been set"); //$NON-NLS-1$
-            }
-            fCategory = category;
+            wrapped.setCategory(category);
             return this;
         }
 
@@ -285,7 +199,7 @@ public final class TraceCompassLogUtils {
          * Set a category and ID for the flow scope.
          *
          * This method is mutually exclusive with
-         * {@link #setParentScope(FlowScopeLog)}. Calling both will throw an
+         * {@link #setParentScope(IFlowScopeLog)}. Calling both will throw an
          * exception.
          *
          * @param category
@@ -295,14 +209,7 @@ public final class TraceCompassLogUtils {
          * @return This builder
          */
         public FlowScopeLogBuilder setCategoryAndId(String category, int id) {
-            if (fParent != null) {
-                throw new IllegalStateException("FlowScopeLogBuilder: Cannot set a category if a parent has already been set"); //$NON-NLS-1$
-            }
-            fCategory = category;
-            fId = id;
-            // Id is already set, so assume this scope has a parent, even if the
-            // parent object is not available
-            fHasParent = true;
+            wrapped.setCategoryAndId(category, id);
             return this;
         }
 
@@ -319,10 +226,7 @@ public final class TraceCompassLogUtils {
          * @return This builder
          */
         public FlowScopeLogBuilder setParentScope(FlowScopeLog parent) {
-            if (fCategory != null) {
-                throw new IllegalStateException("FlowScopeLogBuilder: Cannot set a parent scope if a category has already been set"); //$NON-NLS-1$
-            }
-            fParent = parent;
+            wrapped.setParentScope(parent);
             return this;
         }
 
@@ -332,14 +236,8 @@ public final class TraceCompassLogUtils {
          * @return The flow scope log
          */
         public FlowScopeLog build() {
-            FlowScopeLog parent = fParent;
-            if (parent != null) {
-                // Has a parent scope, so step in flow
-                return new FlowScopeLog(fLogger, fLevel, fLabel, parent.fCategory, parent.fId, false, fArgs);
-            }
-            return new FlowScopeLog(fLogger, fLevel, fLabel, String.valueOf(fCategory), (fId == Integer.MIN_VALUE ? ID_GENERATOR.incrementAndGet() : fId), !fHasParent, fArgs);
+            return new FlowScopeLog(Objects.requireNonNull(wrapped.build()));
         }
-
     }
 
     /**
@@ -376,66 +274,11 @@ public final class TraceCompassLogUtils {
      *  INFO: {"ts":"12420,"ph":"f","tid":0,"cat":"category", "id":256}
      * </pre>
      */
-    public static class FlowScopeLog implements AutoCloseable {
+    public static class FlowScopeLog implements IFlowScopeLog, AutoCloseable {
+        private LogUtils.FlowScopeLog wrapped;
 
-        private final long fThreadId;
-        private final Logger fLogger;
-        private final Level fLevel;
-        private final int fId;
-        private final String fCategory;
-        private final Map<String, Object> fData = new HashMap<>();
-        private final String fLabel;
-        private final long fTime;
-
-        /**
-         * Flow scope logger constructor
-         *
-         * @param log
-         *            the JUL logger
-         * @param level
-         *            the log level see {@link Level}
-         * @param label
-         *            The label of the event pair
-         * @param category
-         *            the category of the flow events
-         * @param id
-         *            The id of the flow
-         * @param startFlow
-         *            Whether this flow scope object is the start of a flow, or
-         *            a step
-         * @param args
-         *            the messages to pass, should be in pairs key, value, key2,
-         *            value2.... typically arguments
-         */
-        private FlowScopeLog(Logger log, Level level, String label, String category, int id, boolean startFlow, Object... args) {
-            fTime = System.nanoTime();
-            fId = id;
-            fLogger = log;
-            fLevel = level;
-            fCategory = category;
-            fLabel = label;
-            fThreadId = Thread.currentThread().getId();
-            fLogger.log(fLevel, (() -> {
-                StringBuilder sb = new StringBuilder();
-                sb.append('{');
-                appendCommon(sb, 'B', fTime, fThreadId);
-                appendName(sb, label);
-                appendArgs(sb, args);
-                sb.append('}');
-                return sb.toString();
-            }));
-            // Add a flow event, either start or step in enclosing scope
-            fLogger.log(fLevel, (() -> {
-                StringBuilder sb = new StringBuilder();
-                sb.append('{');
-                appendCommon(sb, startFlow ? 's' : 't', fTime, fThreadId);
-                appendName(sb, label);
-                appendCategory(sb, category);
-                appendId(sb, fId);
-                appendArgs(sb, args);
-                sb.append('}');
-                return sb.toString();
-            }));
+        private FlowScopeLog(LogUtils.FlowScopeLog flowScopeLog) {
+            this.wrapped = flowScopeLog;
         }
 
         /**
@@ -447,18 +290,7 @@ public final class TraceCompassLogUtils {
          *            the arguments to log
          */
         public void step(String label, Object... args) {
-            long time = System.nanoTime();
-            fLogger.log(fLevel, (() -> {
-                StringBuilder sb = new StringBuilder();
-                sb.append('{');
-                appendCommon(sb, 't', time, fThreadId);
-                appendName(sb, label);
-                appendCategory(sb, fCategory);
-                appendId(sb, fId);
-                appendArgs(sb, args);
-                sb.append('}');
-                return sb.toString();
-            }));
+            wrapped.step(label, args);
         }
 
         /**
@@ -476,32 +308,24 @@ public final class TraceCompassLogUtils {
          *            The value of the field.
          */
         public void addData(String name, Object value) {
-            fData.put(name, value);
+            wrapped.addData(name, value);
         }
 
-        /**
-         * Get the ID for this scope. The ID can be injected to other components
-         * that can use it for the scope loggers
-         *
-         * @return The ID of this scope
-         */
+        @Override
+        public String getCategory() {
+            return String.valueOf(wrapped.getCategory());
+        }
+
+        @Override
         public int getId() {
-            return fId;
+            return wrapped.getId();
         }
 
         @Override
         public void close() {
-            long time = System.nanoTime();
-            fLogger.log(fLevel, (() -> {
-                StringBuilder sb = new StringBuilder();
-                sb.append('{');
-                appendCommon(sb, 'E', time, fThreadId);
-                appendArgs(sb, fData);
-                sb.append('}');
-                return sb.toString();
-            }));
-            TraceCompassMonitorManager.getInstance().update(fLabel, time - fTime);
+            wrapped.close();
         }
+
     }
 
     /**
@@ -523,18 +347,7 @@ public final class TraceCompassLogUtils {
      * @return The unique ID of this object (there may be collisions)
      */
     public static int traceObjectCreation(Logger logger, Level level, Object item) {
-        long time = System.nanoTime();
-        long threadId = Thread.currentThread().getId();
-        int identityHashCode = System.identityHashCode(item);
-        logger.log(level, () -> {
-            StringBuilder sb = new StringBuilder();
-            sb.append('{');
-            appendCommon(sb, 'N', time, threadId);
-            appendName(sb, item.getClass().getSimpleName());
-            appendId(sb, identityHashCode);
-            return sb.append('}').toString();
-        });
-        return identityHashCode;
+        return LogUtils.traceObjectCreation(logger, level, item);
     }
 
     /**
@@ -552,16 +365,7 @@ public final class TraceCompassLogUtils {
      *            the Object to trace
      */
     public static void traceObjectDestruction(Logger logger, Level level, Object item) {
-        long time = System.nanoTime();
-        long threadId = Thread.currentThread().getId();
-        logger.log(level, () -> {
-            StringBuilder sb = new StringBuilder();
-            sb.append('{');
-            appendCommon(sb, 'D', time, threadId);
-            appendName(sb, item.getClass().getSimpleName());
-            appendId(sb, System.identityHashCode(item));
-            return sb.append('}').toString();
-        });
+        LogUtils.traceObjectDestruction(logger, level, item);
     }
 
     /**
@@ -580,16 +384,7 @@ public final class TraceCompassLogUtils {
      *            The unique ID
      */
     public static void traceObjectDestruction(Logger logger, Level level, Object item, int uniqueId) {
-        long time = System.nanoTime();
-        long threadId = Thread.currentThread().getId();
-        logger.log(level, () -> {
-            StringBuilder sb = new StringBuilder();
-            sb.append('{');
-            appendCommon(sb, 'D', time, threadId);
-            appendName(sb, item.getClass().getSimpleName());
-            appendId(sb, uniqueId);
-            return sb.append('}').toString();
-        });
+        LogUtils.traceObjectDestruction(logger, level, item, uniqueId);
     }
 
     /**
@@ -611,17 +406,7 @@ public final class TraceCompassLogUtils {
      *            Additional arguments to log
      */
     public static void traceAsyncStart(Logger logger, Level level, @Nullable String name, @Nullable String category, int id, Object... args) {
-        long time = System.nanoTime();
-        long threadId = Thread.currentThread().getId();
-        logger.log(level, () -> {
-            StringBuilder sb = new StringBuilder();
-            sb.append('{');
-            appendCommon(sb, 'b', time, threadId);
-            appendName(sb, name);
-            appendCategory(sb, category);
-            appendId(sb, id);
-            return appendArgs(sb, args).append('}').toString();
-        });
+        LogUtils.traceAsyncStart(logger, level, name, category, id, args);
     }
 
     /**
@@ -643,17 +428,7 @@ public final class TraceCompassLogUtils {
      *            Additional arguments to log
      */
     public static void traceAsyncNested(Logger logger, Level level, @Nullable String name, @Nullable String category, int id, Object... args) {
-        long time = System.nanoTime();
-        long threadId = Thread.currentThread().getId();
-        logger.log(level, () -> {
-            StringBuilder sb = new StringBuilder();
-            sb.append('{');
-            appendCommon(sb, 'n', time, threadId);
-            appendName(sb, name);
-            appendCategory(sb, category);
-            appendId(sb, id);
-            return appendArgs(sb, args).append('}').toString();
-        });
+        LogUtils.traceAsyncNested(logger, level, name, category, id, args);
     }
 
     /**
@@ -675,17 +450,7 @@ public final class TraceCompassLogUtils {
      *            Additional arguments to log
      */
     public static void traceAsyncEnd(Logger logger, Level level, @Nullable String name, @Nullable String category, int id, Object... args) {
-        long time = System.nanoTime();
-        long threadId = Thread.currentThread().getId();
-        logger.log(level, () -> {
-            StringBuilder sb = new StringBuilder();
-            sb.append('{');
-            appendCommon(sb, 'e', time, threadId);
-            appendName(sb, name);
-            appendCategory(sb, category);
-            appendId(sb, id);
-            return appendArgs(sb, args).append('}').toString();
-        });
+        LogUtils.traceAsyncEnd(logger, level, name, category, id, args);
     }
 
     /**
@@ -706,15 +471,7 @@ public final class TraceCompassLogUtils {
      *            Additional arguments to log
      */
     public static void traceInstant(Logger logger, Level level, String name, Object... args) {
-        long time = System.nanoTime();
-        long threadId = Thread.currentThread().getId();
-        logger.log(level, () -> {
-            StringBuilder sb = new StringBuilder();
-            sb.append('{');
-            appendCommon(sb, 'i', time, threadId);
-            appendName(sb, name);
-            return appendArgs(sb, args).append('}').toString();
-        });
+        LogUtils.traceInstant(logger, level, name, args);
     }
 
     /**
@@ -731,15 +488,7 @@ public final class TraceCompassLogUtils {
      *            The counters to log in the format : "title", value
      */
     public static void traceCounter(Logger logger, Level level, @Nullable String name, Object... args) {
-        long time = System.nanoTime();
-        long threadId = Thread.currentThread().getId();
-        logger.log(level, () -> {
-            StringBuilder sb = new StringBuilder();
-            sb.append('{');
-            appendCommon(sb, 'C', time, threadId);
-            appendName(sb, name);
-            return appendArgs(sb, args).append('}').toString();
-        });
+        LogUtils.traceCounter(logger, level, name, args);
     }
 
     /**
@@ -760,128 +509,7 @@ public final class TraceCompassLogUtils {
      *            "color" and an rbga will be used
      */
     public static void traceMarker(Logger logger, Level level, @Nullable String name, long duration, Object... args) {
-        long time = System.nanoTime();
-        long threadId = Thread.currentThread().getId();
-        logger.log(level, () -> {
-            StringBuilder sb = new StringBuilder();
-            sb.append('{');
-            appendCommon(sb, 'R', time, threadId);
-            appendName(sb, name);
-            sb.append(',');
-            writeObject(sb, "dur", duration); //$NON-NLS-1$
-            return appendArgs(sb, args).append('}').toString();
-        });
+        LogUtils.traceMarker(logger, level, name, duration, args);
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    /*
-     * USE ME FIRST
-     */
-    private static StringBuilder appendCommon(StringBuilder appendTo, char phase, long time, long threadId) {
-        writeObject(appendTo, TIMESTAMP, FORMAT.format((double) time / 1000)).append(','); // $NON-NLS-1$
-        writeObject(appendTo, PHASE, phase).append(',');
-        writeObject(appendTo, TID, threadId).append(',');
-        return writeObject(appendTo, PID, threadId); // $NON-NLS-1$
-    }
-
-    private static StringBuilder appendName(StringBuilder sb, @Nullable String name) {
-        if (name != null) {
-            sb.append(',');
-            writeObject(sb, NAME, name);
-        }
-        return sb;
-    }
-
-    private static StringBuilder appendCategory(StringBuilder sb, @Nullable String category) {
-        if (category != null) {
-            sb.append(',');
-            writeObject(sb, CATEGORY, category);
-        }
-        return sb;
-    }
-
-    private static StringBuilder appendId(StringBuilder sb, int id) {
-        return sb.append(',')
-                .append('"')
-                .append(ID)
-                .append("\":\"0x") //$NON-NLS-1$
-                .append(Integer.toHexString(id))
-                .append('"');
-    }
-
-    private static StringBuilder appendArgs(StringBuilder sb, Map<String, Object> args) {
-        if (!args.isEmpty()) {
-            sb.append(',')
-                    .append('"')
-                    .append(ARGS)
-                    .append('"')
-                    .append(':');
-            Object[] argsArray = new Object[2 * args.size()];
-            Iterator<Entry<String, Object>> entryIter = args.entrySet().iterator();
-            for (int i = 0; i < args.size(); i++) {
-                Entry<String, Object> entry = entryIter.next();
-                argsArray[i] = entry.getKey();
-                argsArray[i + 1] = entry.getValue();
-            }
-            getArgs(sb, argsArray);
-        }
-        return sb;
-    }
-
-    private static StringBuilder appendArgs(StringBuilder sb, Object... args) {
-        if (args.length > 0) {
-            sb.append(',')
-                    .append('"')
-                    .append(ARGS)
-                    .append('"')
-                    .append(':');
-            getArgs(sb, args);
-        }
-        return sb;
-    }
-
-    private static StringBuilder getArgs(StringBuilder appendTo, Object[] data) {
-        if (data.length == 0) {
-            return appendTo;
-        }
-        Set<String> tester = new HashSet<>();
-        appendTo.append('{');
-        if (data.length == 1) {
-            // not in contract, but let's assume here that people are still new
-            // at this
-            appendTo.append("\"msg\":\"").append(data[0]).append('"'); //$NON-NLS-1$
-        } else {
-            if (data.length % 2 != 0) {
-                throw new IllegalArgumentException(
-                        ARGS_ERROR_MESSAGE + "an odd number of messages" + Arrays.asList(data).toString()); //$NON-NLS-1$
-            }
-            for (int i = 0; i < data.length - 1; i += 2) {
-                Object value = data[i + 1];
-                String keyVal = String.valueOf(data[i]);
-                if (tester.contains(keyVal)) {
-                    throw new IllegalArgumentException(ARGS_ERROR_MESSAGE + "an duplicate field names : " + keyVal); //$NON-NLS-1$
-                }
-                tester.add(keyVal);
-                if (i > 0) {
-                    appendTo.append(',');
-                }
-                writeObject(appendTo, keyVal, value);
-            }
-        }
-
-        return appendTo.append('}');
-    }
-
-    private static StringBuilder writeObject(StringBuilder appendTo, Object key, @Nullable Object value) {
-        appendTo.append('"').append(key).append('"').append(':');
-        if (value instanceof Number) {
-            appendTo.append(value);
-        } else {
-            appendTo.append('"').append(String.valueOf(value)).append('"');
-        }
-        return appendTo;
-    }
 }
