@@ -572,6 +572,16 @@ public class TmfRawEventTableDataProvider extends AbstractTmfTableDataProvider i
         JSONObject fields = new JSONObject();
         addFieldsRecursively(event.getContent(), fields);
         jsonEvent.put("fields", fields);
+        JSONObject cols = new JSONObject();
+        for( ITmfEventAspect<?> aspect : event.getTrace().getEventAspects()){
+            Object value = aspect.resolve(event);
+            if (value != null) {
+                cols.put(aspect.getName(), value);
+            }
+        }
+        if (!cols.isEmpty()) {
+            jsonEvent.put("Columns", cols);
+        }
 
         return jsonEvent;
     }
