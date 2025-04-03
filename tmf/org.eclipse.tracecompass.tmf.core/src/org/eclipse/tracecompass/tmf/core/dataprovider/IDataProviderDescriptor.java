@@ -62,6 +62,10 @@ public interface IDataProviderDescriptor {
          */
         DATA_TREE,
         /**
+         * A provider for a data tree, which has entries (rows) and columns.
+         */
+        DATA_RAW,
+        /**
          * A provider with no data. Can be used for grouping purposes and/or as data provider configurator.
          * @since 9.5
          */
